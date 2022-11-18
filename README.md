@@ -1,219 +1,221 @@
-# apple-token-revoke-in-firebase
+# apple-token-revoke-in-realm
 
-This document describes how to revoke the token of Sign in with Apple in the Firebase environment.<br>
+**This tutorial has been adapted from @jooyoungho 's one on Firebase - thank you for your work, it has saved me several headaches and hours...**
+
+This document describes how to revoke the token of Sign in with Apple in the MongoDB Realm environment.<br>
 In accordance with Apple's review guidelines, apps that do not take action by June 30, 2022 may be removed.<br>
-A translator was used to write this document, so I apologize whenever you feel weird about these sentences and describes.<br>
-**This document uses Firebase's Functions, and if Firebase provides related function in the future, I recommend using it.**
 
 The whole process is as follows.
-1. Get authorizationCode from App where user log in.
-2. Get a refresh token with no expiry time using authorizationCode with expiry time.
-3. After saving the refresh token, revoke it when the user leaves the service.
+1. Get ```authorization_code```  when user logs in.
+2. Get a ```refresh_token``` with no expiry time using ```authorization_code``` with expiry time.
+3. After saving the ```refresh_token```, revoke it when the user decides to delete the account.
 
 You can get a refresh token at https://appleid.apple.com/auth/token and revoke at https://appleid.apple.com/auth/revoke.
 
 Create custom functions code: https://jooyoungho.github.io/apple-token-revoke-in-firebase/make-functions/
 
+Follow the tutorial from Realm on how to set-up the Apple authentication: https://www.mongodb.com/docs/atlas/app-services/authentication/apple/#std-label-apple-id-authentication
+**Important note:** I had some issues related to the client_id during the set-up and the revoke flow. Instead of the service_id as mentionned in this tutorial, I had to use the bundle_id to make it work.
+
 ## Getting started
 
-If you have implemented Apple Login using Firebase, you should have ASAuthorizationAppleIDCredential somewhere in your project.<br>
-In my case, it is written in the form below.
+If you have implemented Apple Login using Realm, you should have ASAuthorizationAppleIDCredential somewhere in your project.<br>
+You will need the ```authorization_code``` first to get a ```refresh_token``` from Apple REST API.
 
-```
-  func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-    if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
-      guard let nonce = currentNonce else {
-        fatalError("Invalid state: A login callback was received, but no login request was sent.")
-      }
-      guard let appleIDToken = appleIDCredential.identityToken else {
-        print("Unable to fetch identity token")
-        return
-      }
-      guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
-        print("Unable to serialize token string from data: \(appleIDToken.debugDescription)")
-        return
-      }
-      // Initialize a Firebase credential.
-      let credential = OAuthProvider.credential(withProviderID: "apple.com",
-                                                IDToken: idTokenString,
-                                                rawNonce: nonce)
-      // Sign in with Firebase.
-      Auth.auth().signIn(with: credential) { (authResult, error) in
-        if error {
-          // Error. If error.code == .MissingOrInvalidNonce, make sure
-          // you're sending the SHA256-hashed nonce as a hex string with
-          // your request to Apple.
-          print(error.localizedDescription)
-          return
-        }
-        // User is signed in to Firebase with Apple.
-        // ...
-      }
-    }
-  }
+```swift
+SignInWithAppleButton(signButtonLabel, onRequest: { request in
+			request.requestedScopes = [.email]
+		}, onCompletion: { result in
+			switch result {
+			case .success(let authResults):
+				guard let credentials = authResults.credential as? ASAuthorizationAppleIDCredential,
+						let identityToken = credentials.identityToken,
+						let identityTokenString = String(data: identityToken, encoding: .utf8)
+				else { return }
+
+				appleIdToken = identityTokenString
+				print("Successfully signed in/up with Apple.")
+
+				if let email = credentials.email {
+					login(email, authCredentials: credentials)
+				} else {
+					login("", authCredentials: credentials)
+				}
+			case .failure(let error):
+				print("Sign with Apple failed: \(error.localizedDescription)")
+			}
+		})
+      
+    private func login(_ email: String, authCredentials: ASAuthorizationAppleIDCredential) -> Void {
+	
+			var credentials: Credentials
+
+			if !appleIdToken.isEmpty {
+				credentials = Credentials.apple(idToken: appleIdToken)
+			} else {
+				credentials = Credentials.anonymous
+			}
+
+			app.login(credentials: credentials) { result in
+				switch result {
+				case .failure(let error):
+					print("Login to Realm failed: \(error.localizedDescription)")
+				case .success(let user):
+					print("Successfully logged into Realm as \(user.id).")
+
+					if let authorizationCode = authCredentials.authorizationCode,
+						 let codeString = String(data: authorizationCode, encoding: .utf8) {
+							print("The authorization code is: \(codeString)")
+							// other steps will follow...
+					}
+				}
+			}
+	}
+      
+      
   ```
-What we need is the authorizationCode. Add the following code under guard where you get the idTokenString.
-
-  ```
-  ...
   
-  guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
-    print("Unable to serialize token string from data: \(appleIDToken.debugDescription)")
-    return
-  }
+Once you get this far, you can get the ```authorization_code``` when the user log in.<br>
+However, we need to get a refresh token through ```authorization_code```, and this operation requires a ```JWT token```, so let's do this with a Realm function.
+Turn off Xcode for a while and go to your code in Realm App Services - functions.<br>
 
-  // Add new code below
-  if let authorizationCode = appleIDCredential.authorizationCode,
-     let codeString = String(data: authorizationCode, encoding: .utf8) {
-      print(codeString)
-  }
-  
-  ...
-  
-  ```
-  
-Once you get this far, you can get the authorizationCode when the user log in.<br>
-However, we need to get a refresh token through authorizationCode, and this operation requires JWT, so let's do this with Firebase functions.
-Turn off Xcode for a while and go to your code in Firebase functions.<br>
-If you have never used functions, please refer to https://firebase.google.com/docs/functions.
-
-In Firebase functions, you can use JavaScript or TypeScript, for me, I used JavaScript.
-
-First, let's declare a function that creates a JWT globally. Install the required packages with npm install.<br>
-There is a place to write route of your key file and ID(Team, Client, Key), so plz write your own information.<br>
-If you do not know your ID information, please refer to the relevant issue. https://github.com/jooyoungho/apple-token-revoke-in-firebase/issues/1 <br>
+First, let's declare a function that creates a JWT globally. Install the required packages through the depedencies.<br>
+If you do not know your ID information, please refer to the relevant issue: https://github.com/jooyoungho/apple-token-revoke-in-firebase/issues/1 <br>
 If you don't have a key, you need to create a new one, and turn on the Sign in with Apple option to link it with the app.
 
-  ```
-  function makeJWT() {
+  ```javascript
+ 
+exports = function(){
+  const jwt = require('jsonwebtoken')
 
-    const jwt = require('jsonwebtoken')
-    const fs = require('fs')
+  let privateKey = "YOUR_PRIVATE_KEY" // it needs to be on one line with each return lines replaced by \n
+  const originalPrivateKey = privateKey.replace(/\\n/g, '\n')
 
-    // Path to download key file from developer.apple.com/account/resources/authkeys/list
-    let privateKey = fs.readFileSync('AuthKey_XXXXXXXXXX.p8');
+ 
+  //Sign with your team ID and key ID information.
+  let token = jwt.sign({ 
+  iss: 'YOUR_KEY_ID',
+  iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 120,
+  aud: 'https://appleid.apple.com',
+  sub: 'YOUR_CLIENT_ID'
+  
+  }, originalPrivateKey, { 
+  algorithm: 'ES256',
+  header: {
+  alg: 'ES256',
+  kid: 'YOUR_KEY_ID',
+  } });
+  
+  return token;
 
-    //Sign with your team ID and key ID information.
-    let token = jwt.sign({ 
-    iss: 'YOUR TEAM ID',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 120,
-    aud: 'https://appleid.apple.com',
-    sub: 'YOUR CLIENT ID'
-    
-    }, privateKey, { 
-    algorithm: 'ES256',
-    header: {
-    alg: 'ES256',
-    kid: 'YOUR KEY ID',
-    } });
-    
-    return token;
-  }
+};
   ```
   
 The above function is returned by creating JWT based on your key information.<br>
 Now, let's get the Refresh token with AuthorizationCode.<br>
 We will add a function called getRefreshToken to functions.
 
+  ```javascript
+ exports = async function(arg){
+  const fetch = require("node-fetch");
+  
+  const client_secret = context.functions.execute("makeJWT");
+    
+  let body = {
+    "code" : arg.code,
+    "client_id" : "YOUR_CLIENT_ID",
+    "client_secret" :  client_secret,
+    "grant_type" : "authorization_code"
+  }
+
+var formBody = [];
+for (var property in body) {
+  var encodedKey = encodeURIComponent(property);
+  var encodedValue = encodeURIComponent(body[property]);
+  formBody.push(encodedKey + "=" + encodedValue);
+}
+formBody = formBody.join("&");
+  
+ const response = await fetch('https://appleid.apple.com/auth/token', 
+ {
+	method: 'post',
+	body: formBody,
+	headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+ })
+ const data = await response.json();
+  return data.refresh_token
+}
   ```
-  exports.getRefreshToken = functions.https.onRequest(async (request, response) => {
 
-      //import the module to use
-      const axios = require('axios');
-      const qs = require('qs')
-
-      const code = request.query.code;
-      const client_secret = makeJWT();
-
-      let data = {
-          'code': code,
-          'client_id': 'YOUR CLIENT ID',
-          'client_secret': client_secret,
-          'grant_type': 'authorization_code'
-      }
-      
-      return axios.post(`https://appleid.apple.com/auth/token`, qs.stringify(data), {
-      headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      })
-      .then(async res => {
-          const refresh_token = res.data.refresh_token;
-          response.send(refresh_token);
-          
-      });
-
-  });
-  ```
-
-When you call the above function, you get the code from the query and get a refresh_token.
-For code, this is the authorizationCode we got from the app in the first place.
+When you call the above function, you get the code from the query and get a ```refresh_token```.
+For code, this is the ```authorization_code``` we got from the app in the first place.
 Before connecting to the app, let's add a revoke function as well.
 
 
+  ```javascript
+exports = async function(arg){
+  const fetch = require("node-fetch");
+  const refresh_token = arg.refreshToken
+  const client_secret = context.functions.execute("makeJWT");
+  
+  let data = {
+      'token': refresh_token,
+      'client_id': "YOUR_CLIENT_ID",
+      'client_secret': client_secret,
+      'token_type_hint': 'refresh_token'
+  };
+  
+  var formBody = [];
+  for (var property in data) {
+    var encodedKey = encodeURIComponent(property);
+    var encodedValue = encodeURIComponent(data[property]);
+    formBody.push(encodedKey + "=" + encodedValue);
+  }
+  formBody = formBody.join("&");
+  
+  await fetch("https://appleid.apple.com/auth/revoke", 
+ {
+	method: 'post',
+	body: formBody,
+	headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+ })
+};
   ```
 
-exports.revokeToken = functions.https.onRequest( async (request, response) => {
-
-    //import the module to use
-    const axios = require('axios');
-    const qs = require('qs');
-
-    const refresh_token = request.query.refresh_token;
-    const client_secret = makeJWT();
-
-    let data = {
-        'token': refresh_token,
-        'client_id': 'YOUR CLIENT ID',
-        'client_secret': client_secret,
-        'token_type_hint': 'refresh_token'
-    };
-
-    return axios.post(`https://appleid.apple.com/auth/revoke`, qs.stringify(data), {
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-    })
-    .then(async res => {
-        console.log(res.data);
-        response.send('Complete');
-    });
-});
-
-  ```
-
-The above function revokes the login information based on the refresh_token we got.<br>
-So far we have configured our functions, and when we do 'firebase deploy functions' we will have something we added to the Firebase functions console.
-
-![img](./img.png)
+The above function revokes the login information based on the ```refresh_token``` we got.<br>
 
 Now back to Xcode.<br>
-Call the Functions address in the code you wrote earlier to save Refresh token.<br>
-In the example, it is saved as UserDefaults, but for security reasons, iCloud keychain is recommended.
+Call the Functions address in the code you wrote earlier to save the ```refresh_token```.<br>
+In the example, it is saved as UserDefaults, but for security reasons, iCloud Keychain is recommended.
 
 
-  ```
+  ```swift
   ...
 
   // Add new code below
-  if let authorizationCode = appleIDCredential.authorizationCode, let codeString = String(data: authorizationCode, encoding: .utf8) {
-                
-        let url = URL(string: "https://YOUR-URL.cloudfunctions.net/getRefreshToken?code=\(codeString)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "https://apple.com")!
-              
-          let task = URLSession.shared.dataTask(with: url) {(data, response, error) in
-              
-              if let data = data {
-                  let refreshToken = String(data: data, encoding: .utf8) ?? ""
-                  print(refreshToken)
-                  // *For security reasons, we recommend iCloud keychain rather than UserDefaults.
-                  UserDefaults.standard.set(refreshToken, forKey: "refreshToken")
-                  UserDefaults.standard.synchronize()
-              }
-          }
-        task.resume()
-        
-    }
+  
+ if let authorizationCode = authCredentials.authorizationCode, 
+ 		let codeString = String(data: authorizationCode, encoding: .utf8) {
+	print("code string: \(codeString)")
+					
+	Task {
+		if let user = app.currentUser {
+			do {
+				var response : AnyBSON
+				let request = ("code", AnyBSON(stringLiteral: codeString))
+				response = try await user.functions.getRefreshToken([AnyBSON(dictionaryLiteral: request)])
+				if let refreshToken = response.stringValue {
+					UserDefaults.standard.set(refreshToken, forKey: "refreshToken")
+					UserDefaults.standard.synchronize()
+				}
+				print("refresh token: \(response.stringValue!)")
+
+			} catch(let err) {
+				print(err)
+			}
+		}
+	}
   
   ...
   
@@ -224,28 +226,15 @@ At this point, the user's device will save the refresh_token as UserDefaults whe
 Now all that's left is to revoke when the user leaves the service.
 
 
-  ```
-    func removeAccount() {
-      let token = UserDefaults.standard.string(forKey: "refreshToken")
-
-      if let token = token {
-        
-          let url = URL(string: "https://YOUR-URL.cloudfunctions.net/revokeToken?refresh_token=\(token)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "https://apple.com")!
-                
-          let task = URLSession.shared.dataTask(with: url) {(data, response, error) in
-            guard data != nil else { return }
-          }
-                
-          task.resume()
-          
-      }
-      ...
-      //Delete other information from the database...
-      FirebaseAuthentication.shared.signOut()
-    }
+  ```swift
+    if let token = UserDefaults.standard.string(forKey: "refreshToken") {
+			print("Revoking Apple Token")
+			let request = ("refreshToken", AnyBSON(stringLiteral: token))
+			if let user = app.currentUser {
+				try await user.functions.revokeToken([AnyBSON(dictionaryLiteral: request)])
+			}
+		}
           
   ```
 
 If we've followed everything up to this point, our app should have been removed from your Settings - Password & Security > Apps Using Apple ID.
-
-Thank you.
