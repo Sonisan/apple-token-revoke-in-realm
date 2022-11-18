@@ -83,8 +83,10 @@ First, let's declare a function that creates a JWT globally. Install the require
 If you do not know your ID information, please refer to the relevant issue: https://github.com/jooyoungho/apple-token-revoke-in-firebase/issues/1 <br>
 If you don't have a key, you need to create a new one, and turn on the Sign in with Apple option to link it with the app.
 
+Function ```makeJWT```
   ```javascript
  
+ // makeJWT
 exports = function(){
   const jwt = require('jsonwebtoken')
 
@@ -114,9 +116,10 @@ exports = function(){
   
 The above function is returned by creating JWT based on your key information.<br>
 Now, let's get the Refresh token with AuthorizationCode.<br>
-We will add a function called getRefreshToken to functions.
+We will create a function called ```getRefreshToken```.
 
   ```javascript
+  // getRefreshToken
  exports = async function(arg){
   const fetch = require("node-fetch");
   
@@ -151,9 +154,10 @@ formBody = formBody.join("&");
 When you call the above function, you get the code from the query and get a ```refresh_token```.
 For code, this is the ```authorization_code``` we got from the app in the first place.
 Before connecting to the app, let's add a revoke function as well.
-
+Let's create another function called ```revokeToken```
 
   ```javascript
+  // revokeToken
 exports = async function(arg){
   const fetch = require("node-fetch");
   const refresh_token = arg.refreshToken
