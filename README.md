@@ -86,28 +86,28 @@ Function ```makeJWT```
  
  // makeJWT
 exports = function(){
-  const jwt = require('jsonwebtoken')
+	  const jwt = require('jsonwebtoken')
 
-  let privateKey = "YOUR_PRIVATE_KEY" // it needs to be on one line with each return lines replaced by \n
-  const originalPrivateKey = privateKey.replace(/\\n/g, '\n')
+	  let privateKey = "YOUR_PRIVATE_KEY" // it needs to be on one line with each return lines replaced by \n
+	  const originalPrivateKey = privateKey.replace(/\\n/g, '\n')
 
- 
-  //Sign with your team ID and key ID information.
-  let token = jwt.sign({ 
-  iss: 'YOUR_KEY_ID',
-  iat: Math.floor(Date.now() / 1000),
-  exp: Math.floor(Date.now() / 1000) + 120,
-  aud: 'https://appleid.apple.com',
-  sub: 'YOUR_CLIENT_ID'
-  
-  }, originalPrivateKey, { 
-  algorithm: 'ES256',
-  header: {
-  alg: 'ES256',
-  kid: 'YOUR_KEY_ID',
-  } });
-  
-  return token;
+
+	  //Sign with your team ID and key ID information.
+	  let token = jwt.sign({ 
+	  iss: 'YOUR_KEY_ID',
+	  iat: Math.floor(Date.now() / 1000),
+	  exp: Math.floor(Date.now() / 1000) + 120,
+	  aud: 'https://appleid.apple.com',
+	  sub: 'YOUR_CLIENT_ID'
+
+	  }, originalPrivateKey, { 
+	  algorithm: 'ES256',
+	  header: {
+	  alg: 'ES256',
+	  kid: 'YOUR_KEY_ID',
+	  } });
+
+	  return token;
 
 };
   ```
@@ -118,34 +118,33 @@ We will create a function called ```getRefreshToken```.
 
   ```javascript
   // getRefreshToken
- exports = async function(arg){
-  const fetch = require("node-fetch");
-  
-  const client_secret = context.functions.execute("makeJWT");
-    
-  let body = {
-    "code" : arg.code,
-    "client_id" : "YOUR_CLIENT_ID",
-    "client_secret" :  client_secret,
-    "grant_type" : "authorization_code"
-  }
+exports = async function(arg){
+	const fetch = require("node-fetch");
 
-var formBody = [];
-for (var property in body) {
-  var encodedKey = encodeURIComponent(property);
-  var encodedValue = encodeURIComponent(body[property]);
-  formBody.push(encodedKey + "=" + encodedValue);
-}
-formBody = formBody.join("&");
-  
- const response = await fetch('https://appleid.apple.com/auth/token', 
- {
-	method: 'post',
-	body: formBody,
-	headers: {'Content-Type': 'application/x-www-form-urlencoded'}
- })
- const data = await response.json();
-  return data.refresh_token
+	const client_secret = context.functions.execute("makeJWT");
+	let body = {
+		"code" : arg.code,
+		"client_id" : "YOUR_CLIENT_ID",
+		"client_secret" :  client_secret,
+		"grant_type" : "authorization_code"
+	}
+
+	var formBody = [];
+	for (var property in body) {
+	  var encodedKey = encodeURIComponent(property);
+	  var encodedValue = encodeURIComponent(body[property]);
+	  formBody.push(encodedKey + "=" + encodedValue);
+	}
+	formBody = formBody.join("&");
+
+	const response = await fetch('https://appleid.apple.com/auth/token', 
+	{
+		method: 'post',
+		body: formBody,
+		headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+	 })
+	 const data = await response.json();
+	 return data.refresh_token
 }
   ```
 
@@ -157,31 +156,31 @@ Let's create another function called ```revokeToken```
   ```javascript
   // revokeToken
 exports = async function(arg){
-  const fetch = require("node-fetch");
-  const refresh_token = arg.refreshToken
-  const client_secret = context.functions.execute("makeJWT");
-  
-  let data = {
-      'token': refresh_token,
-      'client_id': "YOUR_CLIENT_ID",
-      'client_secret': client_secret,
-      'token_type_hint': 'refresh_token'
-  };
-  
-  var formBody = [];
-  for (var property in data) {
-    var encodedKey = encodeURIComponent(property);
-    var encodedValue = encodeURIComponent(data[property]);
-    formBody.push(encodedKey + "=" + encodedValue);
-  }
-  formBody = formBody.join("&");
-  
-  await fetch("https://appleid.apple.com/auth/revoke", 
- {
-	method: 'post',
-	body: formBody,
-	headers: {'Content-Type': 'application/x-www-form-urlencoded'}
- })
+	  const fetch = require("node-fetch");
+	  const refresh_token = arg.refreshToken
+	  const client_secret = context.functions.execute("makeJWT");
+
+	  let data = {
+	      'token': refresh_token,
+	      'client_id': "YOUR_CLIENT_ID",
+	      'client_secret': client_secret,
+	      'token_type_hint': 'refresh_token'
+	  };
+
+	  var formBody = [];
+	  for (var property in data) {
+	    var encodedKey = encodeURIComponent(property);
+	    var encodedValue = encodeURIComponent(data[property]);
+	    formBody.push(encodedKey + "=" + encodedValue);
+	  }
+	  formBody = formBody.join("&");
+
+	  await fetch("https://appleid.apple.com/auth/revoke", 
+	 {
+		method: 'post',
+		body: formBody,
+		headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+	 })
 };
   ```
 
