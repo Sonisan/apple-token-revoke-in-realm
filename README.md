@@ -12,8 +12,6 @@ The whole process is as follows.
 
 You can get a refresh token at https://appleid.apple.com/auth/token and revoke at https://appleid.apple.com/auth/revoke.
 
-Create custom functions code: https://jooyoungho.github.io/apple-token-revoke-in-firebase/make-functions/
-
 Follow the tutorial from Realm on how to set-up the Apple authentication: https://www.mongodb.com/docs/atlas/app-services/authentication/apple/#std-label-apple-id-authentication
 **Important note:** I had some issues related to the client_id during the set-up and the revoke flow. Instead of the service_id as mentionned in this tutorial, I had to use the bundle_id to make it work.
 
@@ -115,7 +113,7 @@ exports = function(){
   ```
   
 The above function is returned by creating JWT based on your key information.<br>
-Now, let's get the Refresh token with AuthorizationCode.<br>
+Now, let's get the ```refresh_token``` with the ```authorization_code```.<br>
 We will create a function called ```getRefreshToken```.
 
   ```javascript
@@ -226,7 +224,7 @@ In the example, it is saved as UserDefaults, but for security reasons, iCloud Ke
   ```
 
 
-At this point, the user's device will save the refresh_token as UserDefaults when logging in.
+At this point, the user's device will save the ```refresh_token``` as UserDefaults when logging in.
 Now all that's left is to revoke when the user leaves the service.
 
 
