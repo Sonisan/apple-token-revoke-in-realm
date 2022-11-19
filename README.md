@@ -211,8 +211,6 @@ In the example, it is saved as UserDefaults, but for security reasons, iCloud Ke
 					UserDefaults.standard.set(refreshToken, forKey: "refreshToken")
 					UserDefaults.standard.synchronize()
 				}
-				print("refresh token: \(response.stringValue!)")
-
 			} catch(let err) {
 				print(err)
 			}
@@ -230,7 +228,6 @@ Now all that's left is to revoke when the user leaves the service.
 
   ```swift
     if let token = UserDefaults.standard.string(forKey: "refreshToken") {
-			print("Revoking Apple Token")
 			let request = ("refreshToken", AnyBSON(stringLiteral: token))
 			if let user = app.currentUser {
 				try await user.functions.revokeToken([AnyBSON(dictionaryLiteral: request)])
